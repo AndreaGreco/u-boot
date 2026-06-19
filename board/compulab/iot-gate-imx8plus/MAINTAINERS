@@ -1,0 +1,6 @@
+IOT-GATE-IMX8PLUS BOARD (mainline port)
+M:	Andrea Greco <andrea.greco.gapmilano@gmail.com>
+S:	Maintained
+F:	board/compulab/iot-gate-imx8plus/
+F:	configs/iot-gate-imx8plus_defconfig
+F:	arch/arm/dts/iot-gate-imx8plus-u-boot.dtsi
