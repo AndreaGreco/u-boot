@@ -1,0 +1,15 @@
+if TARGET_IOT_GATE_IMX8PLUS
+
+config SYS_BOARD
+	default "iot-gate-imx8plus"
+
+config SYS_VENDOR
+	default "compulab"
+
+config SYS_CONFIG_NAME
+	default "iot-gate-imx8plus"
+
+config IMX_CONFIG
+	default "board/compulab/iot-gate-imx8plus/imximage-8mp-lpddr4.cfg"
+
+endif
