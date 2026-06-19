@@ -285,6 +285,19 @@ config TARGET_IMX8MP_EVK
 	imply BOOTSTD_FULL
 	imply BOOTSTD_BOOTCOMMAND
 
+config TARGET_IOT_GATE_IMX8PLUS
+	bool "CompuLab IOT-GATE-IMX8PLUS board"
+	select IMX8MP
+	select SUPPORT_SPL
+	select IMX8M_LPDDR4
+	select ARCH_MISC_INIT
+	imply BOOTSTD_FULL
+	imply BOOTSTD_BOOTCOMMAND
+	help
+	  CompuLab IOT-GATE-IMX8PLUS / SBC-IOT-IMX8PLUS based on the
+	  UCM-iMX8M-Plus SoM (NXP i.MX8M Plus). Mainline re-port of the
+	  CompuLab vendor board.
+
 config TARGET_IMX8MP_NAVQP
 	bool "Emcraft Systems i.MX8M Plus NavQ+ board"
 	select IMX8MP
@@ -436,6 +449,12 @@ source "board/beacon/imx8mp/Kconfig"
 source "board/bsh/imx8mn_smm_s2/Kconfig"
 source "board/cloos/imx8mm_phg/Kconfig"
 source "board/compulab/imx8mm-cl-iot-gate/Kconfig"
+source "board/compulab/iot-gate-imx8plus/Kconfig"
+# CompuLab i.MX8MP platform features (DRAM D2/D4/D1D8 selection, add-on smart
+# setup, ATF/TEE load addrs). Source only the imx8mp plat Kconfig, NOT the
+# whole board/compulab/plat/Kconfig (that one carries the vendor's board-select
+# choice which conflicts with the mainline TARGET_* layout).
+source "board/compulab/plat/imx8mp/Kconfig"
 source "board/data_modul/imx8mm_edm_sbc/Kconfig"
 source "board/data_modul/imx8mp_edm_sbc/Kconfig"
 source "board/dhelectronics/dh_imx8mp/Kconfig"
