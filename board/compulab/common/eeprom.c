@@ -7,6 +7,7 @@
  */
 
 #include <i2c.h>
+#include <net.h>
 #include <vsprintf.h>
 #include <eeprom_layout.h>
 #include <eeprom_field.h>
@@ -24,6 +25,7 @@
 #define PRODUCT_NAME_OFFSET		128
 #define PRODUCT_NAME_SIZE		16
 #define MAC_ADDR_OFFSET			4
+#define MAC1_ADDR_OFFSET		10
 #define MAC_ADDR_OFFSET_LEGACY		0
 
 #define LAYOUT_INVALID	0
@@ -111,6 +113,35 @@ int cl_eeprom_read_mac_addr(uchar *buf, uint eeprom_bus)
 	return cl_eeprom_read(offset, buf, 6);
 }
 
+/*
+ * Routine: cl_eeprom_read_n_mac_addr
+ * Description: read the iface_number-th mac address and store it in buf.
+ *
+ * Ported from the CompuLab vendor common layer: boards such as the
+ * iot-gate-imx8plus carry more than one ethernet interface (FEC + EQOS) and
+ * store a MAC per interface in the SoM EEPROM. Falls back to a random address
+ * when the EEPROM slot is empty.
+ */
+int cl_eeprom_read_n_mac_addr(uchar *buf, uint iface_number, uint eeprom_bus)
+{
+	uint offset;
+	int err;
+
+	err = cl_eeprom_setup(eeprom_bus);
+	if (err)
+		return err;
+
+	offset = (iface_number == 0) ? MAC_ADDR_OFFSET : MAC1_ADDR_OFFSET;
+
+	err = cl_eeprom_read(offset, buf, 6);
+
+	/* Generate a random address if the SoM EEPROM slot is empty. */
+	if (buf[0] == buf[2])
+		net_random_ethaddr(buf);
+
+	return err;
+}
+
 static u32 board_rev;
 
 /*
@@ -171,6 +202,178 @@ int cl_eeprom_get_product_name(uchar *buf, uint eeprom_bus)
 		buf[PRODUCT_NAME_SIZE - 1] = '\0';
 
 	return err;
+}
+
+/*
+ * --- CompuLab SoM + carrier (SB) EEPROM, dual-device accessors ---
+ * Used by the runtime DTB fixup (board/compulab/common/fdt.c: fdt_set_sn) to
+ * publish the SoM and baseboard name/serial/revision/options into the kernel
+ * device tree. Kept self-contained (own reader and own layout cache) so the
+ * single-bus cl_eeprom_* accessors above, shared with imx8mm-cl-iot-gate, are
+ * left untouched.
+ */
+#define PRODUCT_OPTION_OFFSET	144
+#define PRODUCT_OPTION_SIZE	16
+#define PRODUCT_OPTION_NUM	5
+
+#ifndef CL_SOM_EEPROM_ADDR
+#define CL_SOM_EEPROM_ADDR	0x50
+#endif
+#ifndef CL_SB_EEPROM_BUS
+#define CL_SB_EEPROM_BUS	0
+#endif
+#ifndef CL_SB_EEPROM_ADDR
+#define CL_SB_EEPROM_ADDR	0x54
+#endif
+
+struct cl_eeprom_dev {
+	int	bus;
+	u8	chip;
+	int	layout;
+};
+
+static struct cl_eeprom_dev eeprom_som = {
+	CONFIG_SYS_I2C_EEPROM_BUS, CL_SOM_EEPROM_ADDR, LAYOUT_INVALID,
+};
+static struct cl_eeprom_dev eeprom_sb = {
+	CL_SB_EEPROM_BUS, CL_SB_EEPROM_ADDR, LAYOUT_INVALID,
+};
+
+static int cl_dev_read(struct cl_eeprom_dev *e, uint offset, uchar *buf, int len)
+{
+	struct udevice *dev;
+	int ret;
+
+	ret = i2c_get_chip_for_busnum(e->bus, e->chip, 1, &dev);
+	if (ret)
+		return ret;
+
+	return dm_i2c_read(dev, offset, buf, len);
+}
+
+static int cl_dev_setup(struct cl_eeprom_dev *e)
+{
+	if (e->layout != LAYOUT_INVALID)
+		return 0;
+
+	if (cl_dev_read(e, EEPROM_LAYOUT_VER_OFFSET, (uchar *)&e->layout, 1)) {
+		e->layout = LAYOUT_INVALID;
+		return -1;
+	}
+
+	if (e->layout == 0 || e->layout >= 0x20)
+		e->layout = LAYOUT_LEGACY;
+
+	return 0;
+}
+
+static void cl_dev_get_serial(struct cl_eeprom_dev *e, struct tag_serialnr *serialnr)
+{
+	u32 serial[2];
+	uint offset;
+
+	memset(serialnr, 0, sizeof(*serialnr));
+
+	if (cl_dev_setup(e))
+		return;
+
+	offset = (e->layout != LAYOUT_LEGACY) ?
+		BOARD_SERIAL_OFFSET : BOARD_SERIAL_OFFSET_LEGACY;
+
+	if (cl_dev_read(e, offset, (uchar *)serial, 8))
+		return;
+
+	if (serial[0] != 0xffffffff && serial[1] != 0xffffffff) {
+		serialnr->low = serial[0];
+		serialnr->high = serial[1];
+	}
+}
+
+void cpl_get_som_serial(struct tag_serialnr *serialnr)
+{
+	cl_dev_get_serial(&eeprom_som, serialnr);
+}
+
+void cpl_get_sb_serial(struct tag_serialnr *serialnr)
+{
+	cl_dev_get_serial(&eeprom_sb, serialnr);
+}
+
+static u32 cl_dev_get_revision(struct cl_eeprom_dev *e)
+{
+	u32 revision = 0;
+
+	if (cl_dev_setup(e))
+		return 0;
+
+	if (cl_dev_read(e, BOARD_REV_OFFSET, (uchar *)&revision, BOARD_REV_SIZE))
+		return 0;
+
+	return revision;
+}
+
+u32 cl_eeprom_get_som_revision(void)
+{
+	return cl_dev_get_revision(&eeprom_som);
+}
+
+u32 cl_eeprom_get_sb_revision(void)
+{
+	return cl_dev_get_revision(&eeprom_sb);
+}
+
+static int cl_dev_read_options(struct cl_eeprom_dev *e, char *buf)
+{
+	uchar tmp[PRODUCT_OPTION_SIZE];
+	int len = 0;
+	int i;
+
+	if (cl_dev_setup(e))
+		return snprintf(buf, PRODUCT_NAME_SIZE, "unknown");
+
+	for (i = 0; i < PRODUCT_OPTION_NUM; ++i) {
+		if (!cl_dev_read(e, PRODUCT_OPTION_OFFSET + PRODUCT_OPTION_SIZE * i,
+				 tmp, PRODUCT_OPTION_SIZE) && tmp[0] != 0xff)
+			len += snprintf(buf + len, PRODUCT_OPTION_SIZE, "%s", (char *)tmp);
+	}
+
+	return len;
+}
+
+int cl_eeprom_read_som_options(char *buf)
+{
+	return cl_dev_read_options(&eeprom_som, buf);
+}
+
+int cl_eeprom_read_sb_options(char *buf)
+{
+	return cl_dev_read_options(&eeprom_sb, buf);
+}
+
+static int cl_dev_read_name(struct cl_eeprom_dev *e, char *buf)
+{
+	uchar tmp[PRODUCT_NAME_SIZE];
+
+	if (cl_dev_setup(e))
+		return snprintf(buf, PRODUCT_NAME_SIZE, "unknown");
+
+	if (!cl_dev_read(e, PRODUCT_NAME_OFFSET, tmp, PRODUCT_NAME_SIZE) &&
+	    tmp[0] != 0xff) {
+		tmp[PRODUCT_NAME_SIZE - 1] = '\0';
+		return snprintf(buf, PRODUCT_NAME_SIZE, "%s", (char *)tmp);
+	}
+
+	return snprintf(buf, PRODUCT_NAME_SIZE, "unknown");
+}
+
+int cl_eeprom_read_som_name(char *buf)
+{
+	return cl_dev_read_name(&eeprom_som, buf);
+}
+
+int cl_eeprom_read_sb_name(char *buf)
+{
+	return cl_dev_read_name(&eeprom_sb, buf);
 }
 
 #ifdef CONFIG_CMD_EEPROM_LAYOUT
