@@ -376,6 +376,81 @@ int cl_eeprom_read_sb_name(char *buf)
 	return cl_dev_read_name(&eeprom_sb, buf);
 }
 
+/*
+ * Board-config accessors used by the 'ldo4' and 'ddr' commands
+ * (board/compulab/plat/imx8mp/board/cmd.c). These values live on page 1 of the
+ * SoM EEPROM (the atmel,24c08 second 256-byte bank, i2c address 0x51) and are
+ * raw offsets, so no layout detection is involved. U-Boot proper only; the SPL
+ * gets its own copies from plat/imx8/eeprom/eeprom_spl.c.
+ */
+#ifndef CONFIG_SPL_BUILD
+#define CL_SOM_EEPROM_P1_ADDR	0x51
+#define BOARD_LDO4_OFFSET	0x60
+#define BOARD_DDRINFO_OFFSET	0x40
+#define BOARD_DDRSUBIND_OFFSET	0x44
+
+static struct cl_eeprom_dev eeprom_som_p1 = {
+	CONFIG_SYS_I2C_EEPROM_BUS, CL_SOM_EEPROM_P1_ADDR, LAYOUT_INVALID,
+};
+
+static int cl_dev_write(struct cl_eeprom_dev *e, uint offset, uchar *buf, int len)
+{
+	struct udevice *dev;
+	int ret;
+
+	ret = i2c_get_chip_for_busnum(e->bus, e->chip, 1, &dev);
+	if (ret)
+		return ret;
+
+	return dm_i2c_write(dev, offset, buf, len);
+}
+
+u8 cl_eeprom_get_ldo4(void)
+{
+	u8 ldo4;
+
+	if (cl_dev_read(&eeprom_som_p1, BOARD_LDO4_OFFSET, &ldo4, 1))
+		return 0xff;
+
+	return ldo4;
+}
+
+u8 cl_eeprom_set_ldo4(u8 ldo4)
+{
+	if (cl_dev_write(&eeprom_som_p1, BOARD_LDO4_OFFSET, &ldo4, 1))
+		return 0xff;
+
+	return ldo4;
+}
+
+u32 cl_eeprom_get_ddrinfo(void)
+{
+	u32 ddrinfo;
+
+	if (cl_dev_read(&eeprom_som_p1, BOARD_DDRINFO_OFFSET, (uchar *)&ddrinfo, 4))
+		return 0;
+
+	return ddrinfo;
+}
+
+void cl_eeprom_clr_ddrinfo(void)
+{
+	u32 ddrinfo[2] = { 0xffffffff, 0xffffffff };
+
+	cl_dev_write(&eeprom_som_p1, BOARD_DDRINFO_OFFSET, (uchar *)ddrinfo, 8);
+}
+
+u8 cl_eeprom_get_subind(void)
+{
+	u8 subind;
+
+	if (cl_dev_read(&eeprom_som_p1, BOARD_DDRSUBIND_OFFSET, &subind, 1))
+		return 0xff;
+
+	return subind;
+}
+#endif /* !CONFIG_SPL_BUILD */
+
 #ifdef CONFIG_CMD_EEPROM_LAYOUT
 /**
  * eeprom_field_print_bin_ver() - print a "version field" which contains binary
