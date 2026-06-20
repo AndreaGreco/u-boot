@@ -261,12 +261,9 @@ int board_late_init(void)
 #endif
 	board_vendor_late_init();
 
-	/*
-	 * INTEGRATION TODO: do_pbb_restore() (power-button on_time/btn_press_time
-	 * restore) lives in the not-yet-built cmd.c. Re-enable together with
-	 * cmd.o once that file's deps (SUPPORTED_CONF, lppdr4_get_ram_name) are
-	 * wired up. Not required to boot.
-	 */
+	/* Restore the power-button on_time/btn_press_time from the env (cmd.c). */
+	do_pbb_restore();
+
 	return 0;
 }
 

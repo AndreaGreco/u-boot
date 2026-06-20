@@ -101,6 +101,7 @@ void do_ddr_rdmr(void) {
    printf("mr[5-8]: [0x%x]\n", data);
 }
 
+int lppdr4_get_ram_name(char *name);
 void do_ddr_name(void) {
    char dram_name[16];
    lppdr4_get_ram_name(dram_name);
