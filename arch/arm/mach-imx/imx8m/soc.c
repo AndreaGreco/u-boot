@@ -368,9 +368,16 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
 	 * rom_pointer[0] stores the TEE memory start address.
 	 * rom_pointer[1] stores the size TEE uses.
 	 * We need to reserve the memory region for TEE.
+	 *
+	 * Only clamp when the TEE sits at the top of the usable range (i.MX8MM/
+	 * 8MN, 0xbe000000). When it sits in the middle (i.MX8MP, 0x56000000) it is
+	 * already carved out of the DRAM banks in dram_init_banksize(); clamping
+	 * there would leave U-Boot/LMB/EFI only the few hundred MiB below the TEE,
+	 * where EFI allocations end up overwriting kernel_addr_r/fdt_addr_r.
 	 */
 	if (!IS_ENABLED(CONFIG_ARMV8_PSCI) && rom_pointer[0] &&
-	    rom_pointer[1] && top_addr > rom_pointer[0])
+	    rom_pointer[1] && top_addr > rom_pointer[0] &&
+	    rom_pointer[0] + rom_pointer[1] >= top_addr)
 		top_addr = rom_pointer[0];
 
 	return top_addr;
