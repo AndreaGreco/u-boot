@@ -15,6 +15,7 @@
 #include <command.h>
 #include <dm.h>
 #include <env.h>
+#include <fdt_support.h>
 #include <i2c.h>
 #include <log.h>
 #include <mmc.h>
@@ -161,6 +162,31 @@ void board_vendor_late_init(void)
 	iotg_imx8plus_select_dtb();
 #endif
 }
+
+#if defined(CONFIG_OF_BOARD_SETUP) && defined(CONFIG_ADDON_SMART_SETUP)
+/*
+ * Tell the OS which M.2 add-on U-Boot detected: all add-on DTBs share the
+ * same model/compatible, so the kernel cannot tell them apart otherwise.
+ * Linux: /proc/device-tree/addon.info/{name,dtb}
+ */
+int fdt_board_vendor_setup(void *blob)
+{
+	int nodeoff;
+
+	nodeoff = fdt_add_subnode(blob, 0, "addon.info");
+	if (nodeoff == -FDT_ERR_EXISTS)
+		nodeoff = fdt_path_offset(blob, "/addon.info");
+	if (nodeoff < 0)
+		return nodeoff;
+
+	fdt_setprop_string(blob, nodeoff, "name",
+			   iotg_imx8plus_addon_type_name[iotg_imx8plus_addon_id]);
+	fdt_setprop_string(blob, nodeoff, "dtb",
+			   iotg_imx8plus_dtb[iotg_imx8plus_addon_id]);
+
+	return 0;
+}
+#endif
 
 static int check_mmc_autodetect(void)
 {
