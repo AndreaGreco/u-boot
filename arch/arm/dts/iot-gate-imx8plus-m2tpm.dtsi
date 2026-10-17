@@ -11,7 +11,6 @@
 		compatible = "infineon,slb9670", "tcg,tpm_tis-spi";
 		reg = <0>;
 		spi-max-frequency = <5000000>;
-		reset-gpios = <&gpio3 20 GPIO_ACTIVE_LOW>;
 		status = "okay";
 	};
 };
@@ -30,9 +29,14 @@
 			MX8MP_IOMUXC_ECSPI2_SS0__GPIO5_IO13				0x40000
 		>;
 	};
+	/*
+	 * TPM nRST: not driven, just held high by the pad pull-up (same as
+	 * the kernel DT). 0x110 had pull-down, which only worked while
+	 * U-Boot drove the line through reset-gpios.
+	 */
 	pinctrl_tpm_nrst: tpmnrstgrp {
 		fsl,pins = <
-			MX8MP_IOMUXC_SAI5_RXC__GPIO3_IO20			0x110
+			MX8MP_IOMUXC_SAI5_RXC__GPIO3_IO20			0x150
 		>;
 	};
 };
